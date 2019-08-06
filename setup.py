@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 # version info
 NAME = "wechat-qr-detection"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 
 # requirements
 install_requires = []
@@ -42,6 +42,7 @@ setup(
     packages=["wechat_qr_detection", ],
     package_data={
         "": ["LICENSE", "README.rst", "MANIFEST.in"],
+        "wechat_qr_detection": ["logo.png", ]
     },
     include_package_data=True,
 )
