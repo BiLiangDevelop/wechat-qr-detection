@@ -43,6 +43,7 @@ class WechatQRInfo(object):
 class LogoMethod(Enum):
     CHAR_TESSERACT = 0
     IMAGE_MATCH = 1
+    CONTOURS_MATCH = 2
 
 
 class WechatQRDetector(object):
@@ -112,8 +113,17 @@ class WechatQRDetector(object):
         """寻找所有的小程序二维码位置
         :rtype: list of WechatQRInfo
         """
-        # 轮廓图
-        contour_image = self.image_to_contour(image=self.gray, is_gray=True, thickness=1)
+        def is_tri_90(t1: CircleData, t2: CircleData, t3: CircleData) -> bool:
+            """ 是否是直角三角形 """
+            # 等腰直角三角形, t3 为直角点
+            d_12_pow = (t1.center_x - t2.center_x) ** 2 + (t1.center_y - t2.center_y) ** 2
+            d_13_pow = (t1.center_x - t3.center_x) ** 2 + (t1.center_y - t3.center_y) ** 2
+            d_23_pow = (t3.center_x - t2.center_x) ** 2 + (t3.center_y - t2.center_y) ** 2
+
+            if abs(d_13_pow - d_23_pow) / d_13_pow > 0.1 or abs(d_13_pow - d_23_pow - d_12_pow) / d_13_pow > 0.1:
+                return False
+
+            return True
 
         def check_distance(dis_pow: int, t1: CircleData, t2: CircleData):
             """ 距离与半径的关系 """
@@ -189,9 +199,128 @@ class WechatQRDetector(object):
             return WechatQRInfo(center_circle=center_circle, logo_circle=logo_circle, c_logo=c_logo, c1=c1, c2=c2)
 
         def maybe_qrcode(left_circle: CircleData, up_circle: CircleData, up_left_circle: CircleData,
-                         center_circle: CircleData) -> WechatQRInfo:
-            # todo not finish
-            pass
+                         center_circle: CircleData, logo_circle: CircleData) -> WechatQRInfo:
+            # 三个牛眼存在的情况先排除
+            if left_circle and up_circle and up_left_circle:
+                return
+
+            # 必须存在至少两个牛眼
+            _valid_count = len([_circle for _circle in [[left_circle, up_circle, up_left_circle]] if _circle])
+            if _valid_count < 2:
+                return
+
+            # 情形 1: left + up_left
+            if left_circle and up_left_circle:
+                # 不可能是直角三角形
+                if is_tri_90(up_left_circle, logo_circle, left_circle) is False:
+                    return
+
+                    # 两个牛眼的距离是距离比例合理
+                dis_l_ul = math.sqrt(
+                    (left_circle.center_x - up_left_circle.center_x) ** 2 +
+                    (left_circle.center_y - up_left_circle.center_y) ** 2
+                )
+                if dis_l_ul / (left_circle.radius + up_left_circle.radius) < 6 or \
+                        dis_l_ul / (left_circle.radius + up_left_circle.radius) > 70:
+                    return
+
+                    # 如果存在 center_circle
+                if center_circle:
+                    # todo 圆心圆的使用
+                    pass
+
+                # 构造二维码位置
+                return WechatQRInfo(
+                    center_circle=CircleData(
+                        center_x=int((logo_circle.center_x + up_left_circle.center_x) / 2),
+                        center_y=int((logo_circle.center_y + up_left_circle.center_y) / 2),
+                        radius=int(math.sqrt((logo_circle.center_y - up_left_circle.center_y) ** 2 + (
+                                logo_circle.center_x - up_left_circle.center_x) ** 2) / 2 + logo_circle.radius)
+                    ),
+                    logo_circle=logo_circle,
+                    c_logo=up_left_circle,
+                    c1=left_circle,
+                    c2=CircleData(
+                        center_x=logo_circle.center_x,
+                        center_y=up_left_circle.center_y,
+                        radius=int((left_circle.radius + up_left_circle.radius) / 2)
+                    )
+                )
+
+            # 情形 2: left + up
+            if left_circle and up_circle:
+                # 不可能是直角三角形
+                if is_tri_90(left_circle, up_circle, logo_circle) is False:
+                    return
+
+                # 两个牛眼的距离是距离比例合理
+                dis_l_u = math.sqrt(
+                    (left_circle.center_x - up_circle.center_x) ** 2 +
+                    (left_circle.center_y - up_circle.center_y) ** 2
+                )
+                if dis_l_u / (left_circle.radius + up_circle.radius) < 8 or \
+                        dis_l_u / (left_circle.radius + up_circle.radius) > 100:
+                    return
+
+                # 如果存在 center_circle
+                if center_circle:
+                    # todo 圆心圆的使用
+                    pass
+
+                # 构造二维码位置
+                return WechatQRInfo(
+                    center_circle=CircleData(
+                        center_x=int((left_circle.center_x + up_circle.center_x) / 2),
+                        center_y=int((left_circle.center_y + up_circle.center_y) / 2),
+                        radius=int(dis_l_u / 2 + logo_circle.radius)
+                    ),
+                    logo_circle=logo_circle,
+                    c_logo=CircleData(
+                        center_x=left_circle.center_x,
+                        center_y=up_circle.center_y,
+                        radius=int((left_circle.radius + up_circle.radius) / 2)
+                    ),
+                    c1=left_circle,
+                    c2=up_circle,
+                )
+
+            # 情形 3: up_left + up
+            if up_left_circle and up_circle:
+                # 不可能是直角三角形
+                if is_tri_90(up_left_circle, logo_circle, up_circle) is False:
+                    return
+
+                # 两个牛眼的距离是距离比例合理
+                dis_u_ul = math.sqrt(
+                    (up_left_circle.center_x - up_circle.center_x) ** 2 +
+                    (up_left_circle.center_y - up_circle.center_y) ** 2
+                )
+                if dis_u_ul / (up_left_circle.radius + up_circle.radius) < 6 or \
+                        dis_u_ul / (up_left_circle.radius + up_circle.radius) > 70:
+                    return
+
+                # 如果存在 center_circle
+                if center_circle:
+                    # todo 圆心圆的使用
+                    pass
+
+                # 构造二维码位置
+                return WechatQRInfo(
+                    center_circle=CircleData(
+                        center_x=int((logo_circle.center_x + up_left_circle.center_x) / 2),
+                        center_y=int((logo_circle.center_y + up_left_circle.center_y) / 2),
+                        radius=int(math.sqrt((logo_circle.center_y - up_left_circle.center_y) ** 2 + (
+                                logo_circle.center_x - up_left_circle.center_x) ** 2) / 2 + logo_circle.radius)
+                    ),
+                    logo_circle=logo_circle,
+                    c_logo=up_left_circle,
+                    c1=CircleData(
+                        center_x=up_left_circle.center_x,
+                        center_y=logo_circle.center_y,
+                        radius=int((up_left_circle.radius + up_circle.radius) / 2)
+                    ),
+                    c2=up_left_circle
+                )
 
         def find_wechat_qrcode_by_logo_circle(logo_circle: CircleData) -> WechatQRInfo:
             """ 利用 logo circle 反查 小程序码 """
@@ -251,7 +380,8 @@ class WechatQRDetector(object):
                                 continue
 
                             # 判断组合是否有效
-                            _wechat_info = maybe_qrcode(_left_circle, _up_circle, _up_left_circle, _center_circle)
+                            _wechat_info = maybe_qrcode(_left_circle, _up_circle, _up_left_circle, _center_circle,
+                                                        logo_circle)
                             if _wechat_info:
                                 return _wechat_info
 
@@ -298,6 +428,22 @@ class WechatQRDetector(object):
 
             self.logger.info("{} qrcode found by logo circle!".format(len(wechat_info_list)))
 
+        ###############################################
+        # 3. 不存在 logo
+        ###############################################
+        new_logo_circle_list = self.find_logo(gray_image=self.gray, filter_by_prob=False)
+        _prob_list = self.is_logo(gray_image=self.gray, circle_list=new_logo_circle_list, method=LogoMethod.IMAGE_MATCH)
+        new_logo_circle_list = [circle for index, circle in enumerate(new_logo_circle_list) if _prob_list[index] > 0]
+        self.logger.info("find logo by image match: {} found!".format(len(new_logo_circle_list)))
+        if new_logo_circle_list:
+            # 利用 logo 寻找小程序码
+            for _logo_circle in new_logo_circle_list:
+                wechat_info = find_wechat_qrcode_by_logo_circle(logo_circle=_logo_circle)
+                if wechat_info:
+                    wechat_info_list.append(wechat_info)
+
+            self.logger.info("{} qrcode found by logo circle!".format(len(wechat_info_list)))
+
         return wechat_info_list
 
     @staticmethod
@@ -322,7 +468,7 @@ class WechatQRDetector(object):
         return logo_rotated_image
 
     def is_logo(self, gray_image: np.ndarray, circle_list: [CircleData],
-                method: LogoMethod = LogoMethod.CHAR_TESSERACT) -> [float]:
+                method: LogoMethod = LogoMethod.CONTOURS_MATCH) -> [float]:
         """ 判断圆圈是小程序码 logo 的概率
         :param gray_image: np.ndarray
         :param method: LogoMethod
@@ -378,6 +524,26 @@ class WechatQRDetector(object):
 
             return _prob
 
+        def get_prob_by_contour_match(_contour_image, _circle) -> float:
+            """ 通过轮廓匹配的方法, 返回 logo 概率 """
+            # 加载 logo
+            _log_template = self.get_logo_template()
+            _logo_contour = WechatQRDetector.image_to_contour(
+                cv2.resize(_log_template, (_circle.radius * 2 + 2, _circle.radius * 2 + 2)), thickness=1)
+
+            # logo 裁边
+            _w, _h = _logo_contour.shape[::-1]
+            _logo_contour = _logo_contour[1:_w - 1, 1:_h - 1]
+
+            # 匹配
+            _radius = _circle.radius
+            _contour_circle = _contour_image[
+                              int(_circle.center_y - _radius):int(_circle.center_y + _radius),
+                              int(_circle.center_x - _radius):int(_circle.center_x + _radius)
+                              ].copy()
+
+            return cv2.matchShapes(_contour_circle, _logo_contour, cv2.CONTOURS_MATCH_I3, 1.0)
+
         if method == LogoMethod.CHAR_TESSERACT:
             contour_image = WechatQRDetector.image_to_contour(image=gray_image, is_gray=True, thickness=-1)
         else:
@@ -388,6 +554,8 @@ class WechatQRDetector(object):
         for circle in circle_list:
             if method == LogoMethod.CHAR_TESSERACT:
                 prob_list.append(get_prob_by_char(_contour_image=contour_image, _circle=circle))
+            elif method == LogoMethod.CONTOURS_MATCH:
+                prob_list.append(get_prob_by_contour_match(_contour_image=contour_image, _circle=circle))
             else:
                 prob_list.append(get_prob_by_match(_contour_image=contour_image, _circle=circle))
 
@@ -466,6 +634,7 @@ class WechatQRDetector(object):
         if filter_by_prob:
             prob_list = self.is_logo(gray_image=gray_image,
                                      circle_list=[circle for (circle, prob, count) in match_result_list])
+            self.logger.info("prob list is {}".format(prob_list))
             result_list = [circle for index, (circle, prob, count) in enumerate(match_result_list)
                            if prob_list[index] > 0 and count > 0]
         else:
