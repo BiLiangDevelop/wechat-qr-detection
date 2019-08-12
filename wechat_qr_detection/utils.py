@@ -514,6 +514,11 @@ class WechatQRDetector(object):
                               int(_circle.center_x - _radius):int(_circle.center_x + _radius)
                               ].copy()
 
+            if _contour_circle.shape[0] < _logo_contour.shape[0] or _contour_circle.shape[1] < _logo_contour.shape[1]:
+                self.logger.warning("shape is invalid: contour_circle {}, logo_contour {}!".format(
+                    _contour_circle.shape[:2], _logo_contour.shape[:2]))
+                return 0
+
             res = cv2.matchTemplate(_contour_circle, _logo_contour, cv2.TM_CCOEFF_NORMED)
             _prob = 0
             loc = np.where(res >= 0.1)
